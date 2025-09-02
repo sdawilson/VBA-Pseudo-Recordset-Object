@@ -1,5 +1,5 @@
 This is a simple replacement for in-memory ADODB recordsets. It's reasonably fast and has no external dependencies.
-Insert the class code into a new cloass module VBA project.
+Insert the class code into a new class module VBA project.
 
 The sample code provides a range of examples.
 
