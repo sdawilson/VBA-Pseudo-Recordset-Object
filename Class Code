@@ -2,6 +2,7 @@
 Option Explicit
 
 'A simple drop-in alternative to a memory-based ADODB recordset, having no external dependencies.
+
 'See samples for usage.
 
 Enum eExpression
@@ -82,22 +83,7 @@ Function Fields(pFunction As eFieldFunction, Optional pFieldName As String, Opti
             
         Case Is = eFieldFunction.efDelete
         
-            'No fields in collection.
-            If sFields.Count = 0 Then
-                Fields = False
-                Exit Function
-            End If
-        
-            'Field doesn't exist.
-            pPtr = FieldExists(pFieldName)
-            If pPtr = 0 Then
-                Fields = False
-                Exit Function
-                
-            'Delete field declaration.
-            Else
-                sFields.Remove pPtr
-            End If
+            Fields = DeleteField(pFieldName)
             
         Case Is = eFieldFunction.efCount
         
@@ -696,53 +682,10 @@ Private Function ConvertToRecord(pData As Variant) As Variant
 
 End Function
 
-Public Function DeleteFieldOld(pField As Variant) As Boolean
 
-    Dim pOldData As Variant
-    Dim pNewData As Variant
-    Dim pOldCol As Long
-    Dim pNewCol As Long
-    Dim pRow As Long
-    Dim pFieldIndex As Long
-    
-    pFieldIndex = FieldIndex(pField) + 1
-    
-    'Exit if there are no reocrds.
-    If sRecordset.Count = 0 Then
-        Exit Function
-    End If
-    
-    'Turn of the filter if it's on.
-    If sFilterOn = True Then
-        FilterOff True
-    End If
-    
-    Set sFiltered = New Collection
-    
-    'Create a new shorter record.
-    ReDim pNewData(sFields.Count - 2)
-    
-    'Copy all data to new temporary collection.
-    For pRow = 1 To sRecordset.Count
-        pOldData = sRecordset(pRow)
 
-        pNewCol = 0
-        For pOldCol = 0 To UBound(pOldData)
-            If pOldCol <> pFieldIndex Then
-                pNewData(pNewCol) = pOldData(pOldCol)
-                pNewCol = pNewCol + 1
-            End If
-        Next
-        sFiltered.Add pNewData
-    Next
-    
-    Set sRecordset = sFiltered
-    
-    sFields.Remove FieldIndex(pField) + 1
-    
-End Function
 
-Public Function DeleteField(pField As Variant) As Boolean
+Private Function DeleteField(pField As Variant) As Boolean
     Dim pIndex As Long                    ' 0-based index in row arrays
     Dim pOldData As Variant
     Dim pNewData As Variant
@@ -798,8 +741,9 @@ Public Function DeleteField(pField As Variant) As Boolean
     If sFields.Count >= pIndex + 1 Then sFields.Remove pIndex + 1
 
     DeleteField = True
-
+    
 End Function
+
 
 Private Function SafeRange(pRowNumber As Long) As Boolean
 
