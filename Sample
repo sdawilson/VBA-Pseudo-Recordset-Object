@@ -1,0 +1,50 @@
+Sub Recordset()
+
+    Dim RS As New RSObject
+    Dim pData As Variant
+    Dim pColl As Collection
+    
+    'Add fields.
+    RS.Fields efAdd, "ID", vbLong
+    RS.Fields efAdd, "Name", vbString
+    RS.Fields efAdd, "Age", vbDouble
+    RS.Fields efAdd, "UK_Resident", vbBoolean
+
+    'Use the records function to add data using an array.
+    RS.Records erAdd, Array(1, "Simon", 59, True)
+    RS.Records erAdd, Array(2, "Andy", 58, True)
+    RS.Records erAdd, Array(3, "Karen", 62, False)
+    RS.Records erAdd, Array(4, "Julia", 60, False)
+    
+    'Use the records function to retrieve an array of data on a record.
+    RS.Records erRetrieve, pData, 2
+    
+    'Access record data using field names.
+    Debug.Print pData(RS.Fields(efIndex, "Name"))
+        
+    'Or access field data using the field function for a record.
+    Debug.Print RS.Field(2, "Name")
+    
+    'Change a specifc field on an existing record.
+    RS.Field(4, "Name") = "Steve"
+    
+    'Delete a row.
+    RS.Records erDelete, , 3
+    
+    'Or combine with the find record function. (Find returns the row number of the found record or zero, if not found).
+    RS.Records erDelete, , RS.Find("Name", eEquals, "Andy", eFindFirst, erForward)
+    
+    'Use sort to sort the records.
+    RS.Sort "Age", True
+    
+    'Use filter to filter the records.
+    RS.Filter "Age", eGreaterThanOrEqualTo, 60
+
+    'Use DebugPrint to output the current recordset to the immediate window.
+    RS.DebugPrint
+    
+    'ID            Name          Age           UK_Resident
+    '------------- ------------- ------------- -------------
+    ' 4            Steve          60           False
+    
+End Sub
