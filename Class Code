@@ -1,0 +1,813 @@
+'Insert as class object "RSObject"
+Option Explicit
+
+'A simple drop-in alternative to a memory-based ADODB recordset, having no external dependencies.
+'See samples for usage.
+
+Enum eExpression
+    eEquals = 1
+    eGreaterThan = 2
+    eGreaterThanOrEqualTo = 3
+    eLessThan = 4
+    eLessThanOrEqualTo = 5
+    eUnequalTo = 6
+    eLike = 7
+End Enum
+
+Enum eFieldFunction
+    efAdd = 1
+    efDelete = 2
+    efCount = 3
+    efCollection = 4
+    efExists = 5
+    efIndex = 6
+End Enum
+
+Enum eRecordFunction
+    erAdd = 1
+    erRetrieve = 2
+    erDelete = 3
+    erDeleteAll = 4
+    erCount = 5
+    erUpdate = 6
+    erCollection = 7
+End Enum
+
+Enum eDirection
+    erForward = 1
+    erBackward = -1
+End Enum
+
+Enum eFind
+    eFindFirst = 1
+    eFindNext = 2
+End Enum
+
+Private Type tField
+    tName As String
+    tType As VbVarType
+End Type
+    
+'Dim sFields() As tField
+
+Dim sRecordset As New Collection
+Dim sFiltered As New Collection
+Dim sBackup As New Collection
+Dim sFields As New Collection
+
+Dim sFilterOn As Boolean
+
+Dim pPtr As Long
+
+
+Function Fields(pFunction As eFieldFunction, Optional pFieldName As String, Optional pFieldType As VbVarType = VbVarType.vbString) As Variant
+
+    Dim pPtr As Long
+    Dim pField As Variant
+       
+    'Field(0) = Name
+    'Field(1) = Type
+    
+    Select Case pFunction
+        Case Is = eFieldFunction.efAdd
+        
+            If FieldExists(pFieldName) > 0 Then
+                Fields = False
+                Exit Function
+            End If
+
+            pField = Array(pFieldName, pFieldType)
+            sFields.Add pField
+            Fields = True
+            
+        Case Is = eFieldFunction.efDelete
+        
+            'No fields in collection.
+            If sFields.Count = 0 Then
+                Fields = False
+                Exit Function
+            End If
+        
+            'Field doesn't exist.
+            pPtr = FieldExists(pFieldName)
+            If pPtr = 0 Then
+                Fields = False
+                Exit Function
+                
+            'Delete field declaration.
+            Else
+                sFields.Remove pPtr
+            End If
+            
+        Case Is = eFieldFunction.efCount
+        
+            Fields = sFields.Count
+            
+        Case Is = eFieldFunction.efCollection
+        
+            Set Fields = sFields
+        
+        Case Is = eFieldFunction.efExists
+        
+            Fields = FieldExists(pFieldName)
+            
+        Case Is = eFieldFunction.efIndex
+        
+            Fields = FieldIndex(pFieldName)
+        
+    End Select
+    
+End Function
+
+
+Public Function Records(pFunction As eRecordFunction, Optional pData As Variant, Optional pRowNumber As Long = 0) As Variant
+    
+    Select Case pFunction
+        Case Is = eRecordFunction.erAdd
+            Records = Append(pData)
+        Case Is = eRecordFunction.erDelete
+            Records = Delete(pRowNumber)
+        Case Is = eRecordFunction.erDeleteAll
+            Set sRecordset = Nothing
+            Set sRecordset = New Collection
+            Records = True
+        Case Is = eRecordFunction.erCount
+            Records = sRecordset.Count
+        Case Is = eRecordFunction.erRetrieve
+            pData = Retrieve(pRowNumber)
+            Records = True
+        Case Is = eRecordFunction.erUpdate
+            Records = Update(pRowNumber, pData)
+        Case Is = eRecordFunction.erCollection
+            Set Records = sRecordset
+    End Select
+    
+End Function
+
+
+Private Function Delete(pRowNumber As Long) As Boolean
+
+    If SafeRange(pRowNumber) Then
+        sRecordset.Remove pRowNumber
+    End If
+    
+End Function
+
+
+Private Function Append(pData As Variant) As Long
+
+    Dim pRecord As Variant
+    Dim pFieldType As VbVarType
+    
+    pRecord = ConvertToRecord(pData)
+    
+    If Not IsNull(pRecord) Then
+        sRecordset.Add pRecord
+    End If
+    
+    Append = sRecordset.Count
+    
+End Function
+
+
+Private Function Retrieve(pRowNumber As Long) As Variant
+
+    If (pRowNumber < 1) Or (pRowNumber > sRecordset.Count) Then
+        Retrieve = Null
+        Exit Function
+    End If
+
+    Retrieve = sRecordset(pRowNumber)
+    
+End Function
+
+
+Public Function Find(pField As Variant, pExpression As eExpression, pValue As Variant, Optional pFind As eFind = eFind.eFindFirst, Optional pDirection As eDirection = eDirection.erForward)
+
+    'Returns -1 if not found.
+
+    Dim pRecord As Variant
+    Dim pIndex As Long
+    Dim pType As VbVarType
+    Dim pLastRow As Long
+    Dim pFirstRow As Long
+    Static pRowPtr As Long
+    Dim pFound As Boolean
+    
+    If sRecordset.Count = 0 Then
+        Find = 0
+        Exit Function
+    End If
+    
+    pIndex = FieldIndex(pField)
+    
+    'Set direction.
+    If pDirection = erBackward Then
+        pLastRow = 1
+        pFirstRow = sRecordset.Count
+    Else
+        pLastRow = sRecordset.Count
+        pFirstRow = 1
+    End If
+    
+    If sFields(pIndex + 1)(1) <> vbString Then
+        pExpression = eEquals
+    End If
+    
+    If pFind = eFindNext Then
+        pFirstRow = pRowPtr + pDirection
+    End If
+    
+    For pPtr = pFirstRow To pLastRow Step pDirection
+        pRecord = sRecordset(pPtr)
+        Select Case pExpression
+            Case Is = eExpression.eLike
+                If pRecord(pIndex) Like pValue Then
+                    pFound = True
+                    Exit For
+                End If
+            Case Is = eExpression.eEquals
+                If pRecord(pIndex) = pValue Then
+                    pFound = True
+                    Exit For
+                End If
+            Case Is = eExpression.eGreaterThan
+                If pRecord(pIndex) > pValue Then
+                    pFound = True
+                    Exit For
+                End If
+            Case Is = eExpression.eGreaterThanOrEqualTo
+                If pRecord(pIndex) >= pValue Then
+                    pFound = True
+                    Exit For
+                End If
+            Case Is = eExpression.eLessThan
+                If pRecord(pIndex) < pValue Then
+                    pFound = True
+                    Exit For
+                End If
+            Case Is = eExpression.eLessThanOrEqualTo
+                If pRecord(pIndex) <= pValue Then
+                    pFound = True
+                    Exit For
+                End If
+            Case Is = eExpression.eUnequalTo
+                If pRecord(pIndex) <> pValue Then
+                    pFound = True
+                    Exit For
+                End If
+        End Select
+    Next
+
+    If pFound = True Then
+        Find = pPtr
+        pRowPtr = pPtr
+    Else
+        Find = 0
+    End If
+
+End Function
+
+
+Private Function FieldIndex(pField As Variant) As Long
+
+    Dim pIndex As Long
+
+    'Returns -1 if not found.
+    
+    Select Case VarType(pField)
+        Case Is = VbVarType.vbDouble, VbVarType.vbInteger, VbVarType.vbLong, VbVarType.vbSingle
+            FieldIndex = CLng(pField)
+        Case Is = VbVarType.vbString
+            For pIndex = 1 To sFields.Count
+                If sFields(pIndex)(0) = pField Then
+                    FieldIndex = pIndex - 1
+                    Exit Function
+                End If
+            Next
+        Case Else
+            FieldIndex = -1
+    End Select
+
+End Function
+
+
+Private Function ConvertToType(pValue As Variant, pType As VbVarType) As Variant
+
+    If VarType(pValue) <> pType Then
+        Select Case pType
+            Case vbInteger: ConvertToType = CInt(pValue)
+            Case vbLong:    ConvertToType = CLng(pValue)
+            Case vbDouble:  ConvertToType = CDbl(pValue)
+            Case vbString:  ConvertToType = CStr(pValue)
+            Case vbDate:    ConvertToType = CDate(pValue)
+            Case vbBoolean: ConvertToType = CBool(pValue)
+            Case vbByte:    ConvertToType = CByte(pValue)
+            Case vbCurrency: ConvertToType = CCur(pValue)
+            Case vbSingle:  ConvertToType = CSng(pValue)
+            Case vbVariant: ConvertToType = CVar(pValue)
+            Case Else: Err.Raise vbObjectError, , "Unsupported VarType"
+        End Select
+    Else
+        ConvertToType = pValue
+    End If
+        
+End Function
+
+
+Function Sort(pFieldName As String, Optional pDescending As Boolean = False)
+
+    SortCollectionByColumn sRecordset, FieldIndex(pFieldName), pDescending
+
+End Function
+
+
+Private Function Update(pRowNumber As Long, pData As Variant) As Boolean
+    
+    Dim pRecord As Variant
+    
+    pRecord = ConvertToRecord(pData)
+    
+    'Replace at same position
+    sRecordset.Remove pRowNumber
+    If pRowNumber <= sRecordset.Count Then
+        'There is an item at this index to insert before
+        sRecordset.Add pData, , pRowNumber
+    Else
+        'Was the last item; append to end
+        sRecordset.Add pData
+    End If
+    
+Recover::
+    
+End Function
+
+
+Public Sub DebugPrint(Optional pShowVarType As Boolean = False)
+
+    Dim pRecord As Variant
+    Dim pField As Variant
+    Dim pCol As Long
+
+    For pPtr = 1 To sFields.Count
+        Debug.Print sFields(pPtr)(0),
+    Next
+    
+    If pShowVarType = True Then
+    
+        Debug.Print
+        
+        For pPtr = 1 To sFields.Count
+            Debug.Print VarTypeName(sFields(pPtr)(1), True),
+        Next
+        
+    End If
+    
+    Debug.Print
+    
+    For pPtr = 1 To sFields.Count
+        Debug.Print String(13, "-"),
+    Next
+        
+    Debug.Print
+    
+    For pPtr = 1 To sRecordset.Count
+    
+        pRecord = sRecordset(pPtr)
+        For pCol = LBound(pRecord) To UBound(pRecord)
+            Debug.Print pRecord(pCol),
+        Next
+        Debug.Print
+        
+    Next
+    
+    Debug.Print: Debug.Print "Total Rows: " & sRecordset.Count
+    
+End Sub
+
+
+Public Property Get Field(pRowNumber As Variant, pField As Variant) As Variant
+
+    Dim pFieldIndex As Long
+    
+    If pRowNumber < 1 Or pRowNumber > sRecordset.Count Then
+        Field = Null
+        Exit Property
+    End If
+
+    pFieldIndex = FieldIndex(pField)
+    
+    Field = sRecordset(pRowNumber)(pFieldIndex)
+
+End Property
+
+
+Public Property Let Field(pRowNumber As Variant, pField As Variant, pValue As Variant)
+
+    Dim pFieldIndex As Long
+    Dim pFieldType As VbVarType
+    Dim pData As Variant
+
+    If (pRowNumber < 1) Or (pRowNumber > sRecordset.Count) Then Exit Property
+
+    pFieldIndex = FieldIndex(pField)
+
+    'Get and modify the record
+    pData = sRecordset(pRowNumber)
+    pFieldType = sFields(pFieldIndex + 1)(1)
+    pData(pFieldIndex) = ConvertToType(pValue, pFieldType)
+
+    'Replace at same position
+    sRecordset.Remove pRowNumber
+    If pRowNumber <= sRecordset.Count Then
+        'There is an item at this index to insert before
+        sRecordset.Add pData, , pRowNumber
+    Else
+        'Was the last item; append to end
+        sRecordset.Add pData
+    End If
+    
+End Property
+
+
+Public Function Filter(pField As String, pExpression As eExpression, pValue As Variant, Optional pStartRow As Long = 1) As Long
+
+    'Returns -1 if not found.
+
+    Dim pRecord As Variant
+    Dim pIndex As Long
+    Dim pType As VbVarType
+    
+    pIndex = FieldIndex(pField)
+    
+    If sFields(pIndex + 1)(1) <> vbString Then
+        pExpression = eEquals
+    End If
+    
+    Set sFiltered = New Collection
+    
+    For pPtr = 1 To sRecordset.Count
+        pRecord = sRecordset(pPtr)
+        Select Case pExpression
+            Case Is = eExpression.eLike
+                If pRecord(pIndex) Like pValue Then
+                    sFiltered.Add pRecord
+                End If
+            Case Is = eExpression.eEquals
+                If pRecord(pIndex) = pValue Then
+                    sFiltered.Add pRecord
+                End If
+            Case Is = eExpression.eGreaterThan
+                If pRecord(pIndex) > pValue Then
+                    sFiltered.Add pRecord
+                End If
+            Case Is = eExpression.eGreaterThanOrEqualTo
+                If pRecord(pIndex) >= pValue Then
+                    sFiltered.Add pRecord
+                End If
+            Case Is = eExpression.eLessThan
+                If pRecord(pIndex) < pValue Then
+                    sFiltered.Add pRecord
+                End If
+            Case Is = eExpression.eLessThanOrEqualTo
+                If pRecord(pIndex) <= pValue Then
+                    sFiltered.Add pRecord
+                End If
+            Case Is = eExpression.eUnequalTo
+                If pRecord(pIndex) <> pValue Then
+                    sFiltered.Add pRecord
+                End If
+        End Select
+    Next
+
+    If sFilterOn = False Then
+        Set sBackup = sRecordset
+    End If
+    
+    Set sRecordset = sFiltered
+    
+    sFilterOn = True
+    
+    Filter = sRecordset.Count
+
+End Function
+
+
+
+Public Sub FilterOff(Optional pClearFilter As Boolean)
+
+    If sFilterOn = True Then
+        'If Not sFiltered Is Nothing Then
+            Set sRecordset = sBackup
+       'End If
+    End If
+      
+    sFilterOn = False
+
+End Sub
+
+
+' Sorts a Collection of Variant row-arrays by the given column (1-based).
+' Works for numbers or text; Null/Empty are placed last. Set descending:=True for reverse order.
+Private Sub SortCollectionByColumn(ByRef rows As Collection, ByVal colIndex As Long, _
+                                  Optional ByVal descending As Boolean = False)
+
+    Dim n As Long, i As Long
+    n = rows.Count
+    If n <= 1 Then Exit Sub
+
+    Dim idx() As Long
+    ReDim idx(1 To n)
+    For i = 1 To n
+        idx(i) = i
+    Next
+
+    QuickSortIdx idx, rows, colIndex, descending
+
+    ' Rebuild collection in sorted order
+    Dim sorted As New Collection
+    For i = 1 To n
+        sorted.Add rows(idx(i))
+    Next
+
+    ' Replace reference (caller passed ByRef object variable)
+    Set rows = sorted
+End Sub
+
+
+'==== Internals ====
+Private Sub QuickSortIdx(ByRef idx() As Long, ByRef rows As Collection, _
+                         ByVal colIndex As Long, ByVal desc As Boolean)
+    QSort idx, LBound(idx), UBound(idx), rows, colIndex, desc
+End Sub
+
+
+Private Sub QSort(ByRef a() As Long, ByVal lo As Long, ByVal hi As Long, _
+                  ByRef rows As Collection, ByVal c As Long, ByVal desc As Boolean)
+    Dim i As Long, j As Long, p As Variant
+    i = lo: j = hi
+    p = GetVal(rows, a((lo + hi) \ 2), c)
+
+    Do While i <= j
+        If Not desc Then
+            Do While CompareLess(GetVal(rows, a(i), c), p): i = i + 1: Loop
+            Do While CompareLess(p, GetVal(rows, a(j), c)): j = j - 1: Loop
+        Else
+            Do While CompareLess(p, GetVal(rows, a(i), c)): i = i + 1: Loop
+            Do While CompareLess(GetVal(rows, a(j), c), p): j = j - 1: Loop
+        End If
+
+        If i <= j Then
+            SwapLong a(i), a(j)
+            i = i + 1: j = j - 1
+        End If
+    Loop
+
+    If lo < j Then QSort a, lo, j, rows, c, desc
+    If i < hi Then QSort a, i, hi, rows, c, desc
+End Sub
+
+
+Private Function GetVal(rows As Collection, idx As Long, colIndex As Long) As Variant
+    Dim r As Variant
+    r = rows(idx)                  ' r is the row (Variant array)
+    GetVal = r(colIndex)           ' assumes 1-based; change if yours are 0-based
+End Function
+
+
+Private Function CompareLess(a As Variant, b As Variant) As Boolean
+    ' Null/Empty last
+    If IsEmpty(a) Or IsNull(a) Then
+        CompareLess = Not (IsEmpty(b) Or IsNull(b))  ' False if both empty; True if b has value
+        Exit Function
+    End If
+    If IsEmpty(b) Or IsNull(b) Then
+        CompareLess = False
+        Exit Function
+    End If
+
+    ' Numbers vs text
+    If IsNumeric(a) And IsNumeric(b) Then
+        CompareLess = CDbl(a) < CDbl(b)
+    Else
+        CompareLess = (StrComp(CStr(a), CStr(b), vbTextCompare) < 0)
+    End If
+End Function
+
+
+Private Sub SwapLong(ByRef x As Long, ByRef y As Long)
+    Dim t As Long: t = x: x = y: y = t
+End Sub
+
+
+Private Function FieldExists(pFieldName As String) As Long
+
+    Dim pRow As Long
+    Dim pField As Variant
+    
+    'Field(0) = Name
+    'Field(1) = Type
+    
+    If sFields.Count = 0 Then
+        FieldExists = 0
+        Exit Function
+    End If
+    
+    For pRow = 1 To sFields.Count
+        If sFields(pRow)(0) = pFieldName Then
+            FieldExists = pRow
+            Exit Function
+        End If
+    Next
+
+    FieldExists = 0
+
+End Function
+
+
+Private Function VarTypeName(ByVal pType As VbVarType, Optional pUseShortName As Boolean) As String
+
+    If pUseShortName = False Then
+        Select Case pType
+            Case vbEmpty:      VarTypeName = "Empty"
+            Case vbNull:       VarTypeName = "Null"
+            Case vbInteger:    VarTypeName = "Integer"
+            Case vbLong:       VarTypeName = "Long"
+            Case vbSingle:     VarTypeName = "Single"
+            Case vbDouble:     VarTypeName = "Double"
+            Case vbCurrency:   VarTypeName = "Currency"
+            Case vbDate:       VarTypeName = "Date"
+            Case vbString:     VarTypeName = "String"
+            Case vbObject:     VarTypeName = "Object"
+            Case vbError:      VarTypeName = "Error"
+            Case vbBoolean:    VarTypeName = "Boolean"
+            Case vbVariant:    VarTypeName = "Variant"
+            Case vbDataObject: VarTypeName = "DataObject"
+            Case vbDecimal:    VarTypeName = "Decimal"
+            Case vbByte:       VarTypeName = "Byte"
+            Case vbUserDefinedType: VarTypeName = "User Defined Type"
+            Case vbArray:      VarTypeName = "Array"
+            Case Else:         VarTypeName = "Unknown (" & pType & ")"
+        End Select
+    Else
+        Select Case pType
+            Case vbEmpty:      VarTypeName = "Empt"
+            Case vbNull:       VarTypeName = "Null"
+            Case vbInteger:    VarTypeName = "Int"
+            Case vbLong:       VarTypeName = "Lng"
+            Case vbSingle:     VarTypeName = "Sng"
+            Case vbDouble:     VarTypeName = "Dbl"
+            Case vbCurrency:   VarTypeName = "Cur"
+            Case vbDate:       VarTypeName = "Dat"
+            Case vbString:     VarTypeName = "Str"
+            Case vbObject:     VarTypeName = "Obj"
+            Case vbError:      VarTypeName = "Err"
+            Case vbBoolean:    VarTypeName = "Bool"
+            Case vbVariant:    VarTypeName = "Vari"
+            Case vbDataObject: VarTypeName = "DObj"
+            Case vbDecimal:    VarTypeName = "Deci"
+            Case vbByte:       VarTypeName = "Byte"
+            Case vbUserDefinedType: VarTypeName = "User Defined Type"
+            Case vbArray:      VarTypeName = "Arr"
+            Case Else:         VarTypeName = "Unknown (" & pType & ")"
+        End Select
+    End If
+    
+End Function
+
+
+Private Function ConvertToRecord(pData As Variant) As Variant
+
+    Dim pRecord As Variant
+    Dim pFieldType As VbVarType
+    
+    ReDim pRecord(0 To sFields.Count - 1)
+    
+    If UBound(pData) <> UBound(pRecord) Then
+        ConvertToRecord = Null
+    End If
+    
+    For pPtr = LBound(pData) To UBound(pData)
+        pFieldType = sFields(pPtr + 1)(1)
+        pRecord(pPtr) = ConvertToType(pData(pPtr), pFieldType)
+    Next
+
+    ConvertToRecord = pRecord
+
+End Function
+
+Public Function DeleteFieldOld(pField As Variant) As Boolean
+
+    Dim pOldData As Variant
+    Dim pNewData As Variant
+    Dim pOldCol As Long
+    Dim pNewCol As Long
+    Dim pRow As Long
+    Dim pFieldIndex As Long
+    
+    pFieldIndex = FieldIndex(pField) + 1
+    
+    'Exit if there are no reocrds.
+    If sRecordset.Count = 0 Then
+        Exit Function
+    End If
+    
+    'Turn of the filter if it's on.
+    If sFilterOn = True Then
+        FilterOff True
+    End If
+    
+    Set sFiltered = New Collection
+    
+    'Create a new shorter record.
+    ReDim pNewData(sFields.Count - 2)
+    
+    'Copy all data to new temporary collection.
+    For pRow = 1 To sRecordset.Count
+        pOldData = sRecordset(pRow)
+
+        pNewCol = 0
+        For pOldCol = 0 To UBound(pOldData)
+            If pOldCol <> pFieldIndex Then
+                pNewData(pNewCol) = pOldData(pOldCol)
+                pNewCol = pNewCol + 1
+            End If
+        Next
+        sFiltered.Add pNewData
+    Next
+    
+    Set sRecordset = sFiltered
+    
+    sFields.Remove FieldIndex(pField) + 1
+    
+End Function
+
+Public Function DeleteField(pField As Variant) As Boolean
+    Dim pIndex As Long                    ' 0-based index in row arrays
+    Dim pOldData As Variant
+    Dim pNewData As Variant
+    Dim pOldCol As Long, pNewCol As Long
+    Dim pRow As Long
+    Dim pUB As Long
+
+    DeleteField = False
+
+    pIndex = FieldIndex(pField)           ' expect 0-based; -1 if not found
+    
+    If pIndex < 0 Then Exit Function
+
+    If sFilterOn Then FilterOff True
+
+    Set sFiltered = New Collection
+
+    If sRecordset Is Nothing Or sRecordset.Count = 0 Then
+        ' No rows: just fix metadata and finish
+        If sFields.Count >= pIndex + 1 Then sFields.Remove pIndex + 1
+        Set sRecordset = sFiltered
+        DeleteField = True
+        Exit Function
+    End If
+
+    ' Rebuild each row without the target column
+    For pRow = 1 To sRecordset.Count
+        pOldData = sRecordset(pRow)
+        pUB = UBound(pOldData)
+
+        If pUB < 0 Then
+            pNewData = pOldData                       ' already empty row
+        ElseIf pUB = 0 Then
+            ' One column in the row; deleting it ? empty row
+            pNewData = Array()
+        Else
+            ReDim pNewData(0 To pUB - 1)              ' one fewer element
+            pNewCol = 0
+            For pOldCol = 0 To pUB
+                If pOldCol <> pIndex Then
+                    pNewData(pNewCol) = pOldData(pOldCol)
+                    pNewCol = pNewCol + 1
+                End If
+            Next
+        End If
+
+        sFiltered.Add pNewData
+    Next
+
+    Set sRecordset = sFiltered
+
+    ' Update field metadata (1-based collection)
+    If sFields.Count >= pIndex + 1 Then sFields.Remove pIndex + 1
+
+    DeleteField = True
+
+End Function
+
+Private Function SafeRange(pRowNumber As Long) As Boolean
+
+    SafeRange = True
+
+    If pRowNumber < 1 Or pRowNumber > sRecordset.Count Then
+        SafeRange = False
+        Exit Function
+    End If
+
+End Function
